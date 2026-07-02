@@ -2,6 +2,7 @@ import sys
 # 数值、矩阵操作
 import math
 import numpy as np
+from numpy.typing import NDArray
 
 # 数据读取与写入make_dot
 import pandas as pd
@@ -29,16 +30,19 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using {device} device")
 
 # 1. 打印当前解释器的绝对路径
-print(f"当前解释器路径: {sys.executable}")
+# print(f"当前解释器路径: {sys.executable}")
 
 # 2. 打印 Python 搜索库的路径 (sys.path)
-print("\n库搜索路径 (sys.path):")
-for path in sys.path:
-    print(path)
+# print("\n库搜索路径 (sys.path):")
+# for path in sys.path:
+#     print(path)
 
 # 3. 确认 Python 版本
 print(f"\nPython 版本: {sys.version}")
 
+# sys.exit(0)  # 退出程序，防止后续代码执行
+
+# 可以不做修改
 
 def same_seed(seed:int) -> None:
     '''
@@ -46,7 +50,8 @@ def same_seed(seed:int) -> None:
     '''
     #在处理卷积运算时,不要使用那些虽然快但具有不确定性Non-deterministic的优化算法。
     torch.backends.cudnn.deterministic = True
-    #关闭 cuDNN 的自动调优（Auto-tuner）。通常它会根据显卡架构寻找最快的算法，但这会导致计算过程有细微的随机波动，设置为 False 可以保证一致性。
+    #关闭 cuDNN 的自动调优（Auto-tuner）。通常它会根据显卡架构寻找最快的算法，
+    # 但这会导致计算过程有细微的随机波动，设置为 False 可以保证一致性。
     torch.backends.cudnn.benchmark = False
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -55,7 +60,7 @@ def same_seed(seed:int) -> None:
     print(f'Set Seed = {seed}')
 
 
-def train_valid_split(data_set:Dataset, valid_ratio:float, seed:int) -> tuple[np.ndarray, np.ndarray]:
+def train_valid_split(data_set:NDArray[np.float64], valid_ratio:float, seed:int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     '''
     数据集拆分成训练集（training set）和 验证集（validation set）
     '''
@@ -96,7 +101,7 @@ class COVID19Dataset(Dataset):
     def __len__(self):
         return len(self.x)
     
-
+ #神经网络模型,可以在以下My_Model类框架下，进行不同结构的深度模型尝试
 class My_Model(nn.Module):
     def __init__(self, input_dim):
         super(My_Model, self).__init__()
@@ -114,6 +119,7 @@ class My_Model(nn.Module):
         x = x.squeeze(1) # (B, 1) -> (B)
         return x
     
+#特征选择: 通过修改下面的函数，选择自己认为有用的特征
 def select_feat(train_data, valid_data, test_data, select_all=True):
     '''
     特征选择
@@ -202,14 +208,17 @@ def trainer(train_loader, valid_loader, model, config, device):
         if early_stop_count >= config['early_stop']:
             print('\nModel is not improving, so we halt the training session.')
             return
-        
+
+
+# 超参设置`config` 包含所有训练需要的超参数（便于后续的调参），以及模型需要存储的位置   
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(device)
 config = {
     'seed': 5201314,      # 随机种子，可以自己填写. :)
     'select_all': True,   # 是否选择全部的特征
     'valid_ratio': 0.2,   # 验证集大小(validation_size) = 训练集大小(train_size) * 验证数据占比(valid_ratio)
-    'n_epochs': 3000,     # 数据遍历训练次数           
+    'n_epochs': 30,     # 数据遍历训练次数           
     'batch_size': 256, 
     'learning_rate': 1e-5,              
     'early_stop': 400,    # 如果early_stop轮损失没有下降就停止训练.     
@@ -231,9 +240,17 @@ same_seed(config['seed'])
 # 训练集大小(train_data size) : 2699 x 118 (id + 37 states + 16 features x 5 days) 
 # 测试集大小(test_data size）: 1078 x 117 (没有label (last day's positive rate))
 pd.set_option('display.max_column', 200) # 设置显示数据的列数
-train_df, test_df = pd.read_csv('./covid.train.csv'), pd.read_csv('./covid.test.csv')
-display(train_df.head(3)) # 显示前三行的样本
+train_df, test_df = pd.read_csv('./data/covid.train.csv'), pd.read_csv('./data/covid.test.csv')
+print(type(train_df))
+print(test_df)
+
+
+#display(train_df.head(3)) # 显示前三行的样本
 train_data, test_data = train_df.values, test_df.values
+print(train_data[0])
+# print(type(train_data))
+print(type(train_data[0][0]))
+print(type(train_data[0][40]))
 del train_df, test_df # 删除数据减少内存占用
 train_data, valid_data = train_valid_split(train_data, config['valid_ratio'], config['seed'])
 
