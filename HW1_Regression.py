@@ -8,7 +8,6 @@ import pandas as pd
 import os
 import csv
 
-
 # 进度条
 from tqdm import tqdm
 # 如果是使用notebook 推荐使用以下（颜值更高 : ) ）
@@ -224,3 +223,61 @@ config = {
 #    - `select_feat`：拆分特征和label，并进行特征选择
 #    - `COVID19Dataset`: 分别将训练、验证、测试集的特征和label组合成可以用于快速迭代训练的数据集`train_dataset, valid_dataset, test_dataset`
 #这部分不用修改</b>
+
+# 设置随机种子便于复现
+same_seed(config['seed'])
+
+
+# 训练集大小(train_data size) : 2699 x 118 (id + 37 states + 16 features x 5 days) 
+# 测试集大小(test_data size）: 1078 x 117 (没有label (last day's positive rate))
+pd.set_option('display.max_column', 200) # 设置显示数据的列数
+train_df, test_df = pd.read_csv('./covid.train.csv'), pd.read_csv('./covid.test.csv')
+display(train_df.head(3)) # 显示前三行的样本
+train_data, test_data = train_df.values, test_df.values
+del train_df, test_df # 删除数据减少内存占用
+train_data, valid_data = train_valid_split(train_data, config['valid_ratio'], config['seed'])
+
+# 打印数据的大小
+print(f"""train_data size: {train_data.shape} 
+valid_data size: {valid_data.shape} 
+test_data size: {test_data.shape}""")
+
+# 特征选择
+x_train, x_valid, x_test, y_train, y_valid = select_feat(train_data, valid_data, test_data, config['select_all'])
+
+# 打印出特征数量.
+print(f'number of features: {x_train.shape[1]}')
+
+train_dataset, valid_dataset, test_dataset = COVID19Dataset(x_train, y_train), \
+                                            COVID19Dataset(x_valid, y_valid), \
+                                            COVID19Dataset(x_test)
+
+# 使用Pytorch中Dataloader类按照Batch将数据集加载
+train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True, pin_memory=True)
+valid_loader = DataLoader(valid_dataset, batch_size=config['batch_size'], shuffle=True, pin_memory=True)
+test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False, pin_memory=True)
+
+#开始训练
+
+model = My_Model(input_dim=x_train.shape[1]).to(device) # 将模型和训练数据放在相同的存储位置(CPU/GPU)
+trainer(train_loader, valid_loader, model, config, device)
+
+#不要再在 Notebook 中使用 %tensorboard。
+#改为使用 VS Code 自带的 TensorBoard 插件（安装在左侧侧边栏中），或者直接在外部终端运行命令：
+#Bash
+#tensorboard --logdir=./runs/ --port=6007
+
+
+#测试集的预测结果保存到`pred.csv`
+def save_pred(preds, file):
+    ''' 将模型保存到指定位置'''
+    with open(file, 'w') as fp:
+        writer = csv.writer(fp)
+        writer.writerow(['id', 'tested_positive'])
+        for i, p in enumerate(preds):
+            writer.writerow([i, p])
+
+model = My_Model(input_dim=x_train.shape[1]).to(device)
+model.load_state_dict(torch.load(config['save_path']))
+preds = predict(test_loader, model, device) 
+save_pred(preds, 'pred.csv')         
