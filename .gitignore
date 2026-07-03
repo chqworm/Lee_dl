@@ -221,3 +221,4 @@ __marimo__/
 pred.csv
 models/
 runs/
+.vscode/
