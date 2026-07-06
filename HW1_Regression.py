@@ -1,3 +1,4 @@
+from datetime import datetime
 import sys
 # 数值、矩阵操作
 import math
@@ -146,7 +147,7 @@ class My_Model_No_States(nn.Module):
 
 class My_Model_Emebedding(nn.Module):
     def __init__(self, num_cities:int,num_numerical_features:int):
-        super(My_Model, self).__init__()
+        super(My_Model_Emebedding, self).__init__()
         # TODO: 修改模型结构, 注意矩阵的维度（dimensions） 
 
         # 1. Embedding 层：处理离散的城市ID
@@ -197,7 +198,7 @@ def select_feat(train_data:NDArray[np.float64],
 
 
 def trainer(train_loader:DataLoader, valid_loader:DataLoader, 
-            model:nn.Module, config:dict, device:torch.device|str)-> None:
+            model:nn.Module, config:dict, device:torch.device|str,logdir:str)-> None:
 
     criterion = nn.MSELoss(reduction='mean') # 损失函数的定义 均方误差损失函数  ((y-y_pred)**2)/n,适合回归问题预测一个数值
     #对异常值敏感 (Outliers)：因为平方的存在，如果数据集中有极个别异常离谱的点（离群点），MSE 会给这些点赋予极高的权重。这会导致模型为了“照顾”这些离群点而牺牲掉大部分正常数据的准确度。
@@ -207,7 +208,10 @@ def trainer(train_loader:DataLoader, valid_loader:DataLoader,
 
     
     # tensorboard 的记录器
-    writer = SummaryWriter()
+    if logdir is not None:
+        writer = SummaryWriter(log_dir=logdir)
+    else:
+        writer = SummaryWriter()
 
     if not os.path.isdir('./models'):
         # 创建文件夹-用于存储模型
@@ -323,16 +327,17 @@ train_no_id_loader = DataLoader(train_dataset_no_id, batch_size=config['batch_si
 valid_no_id_loader = DataLoader(valid_dataset_no_id, batch_size=config['batch_size'], shuffle=True, pin_memory=True)
 test_no_id_loader = DataLoader(test_dataset_no_id, batch_size=config['batch_size'], shuffle=False, pin_memory=True)
 
+run_name = datetime.now().strftime("%d_%H-%M-%S")
+log_dir = os.path.join("runs", "experiment_name", run_name)
+
 #开始训练
-
-
-model_no_states = My_Model_No_States(input_dim=x_train_no_states.shape[1]).to(device) # 将模型和训练数据放在相同的存储位置(CPU/GPU)
-model_no_states.optimizer = torch.optim.SGD(model_no_states.parameters(), lr=config['learning_rate'], momentum=0.9)
-trainer(train_no_states_loader, valid_no_states_loader, model_no_states, config, device)
-
 model_no_states1 = My_Model_No_States(input_dim=x_train_no_states.shape[1]).to(device) # 将模型和训练数据放在相同的存储位置(CPU/GPU)
-model_no_states1.optimizer = torch.optim.SGD(model_no_states.parameters(), lr=config['learning_rate'], momentum=0.9)
-trainer(train_no_states_loader, valid_no_states_loader, model_no_states1, config, device)
+model_no_states1.optimizer = torch.optim.SGD(model_no_states1.parameters(), lr=config['learning_rate'], momentum=0.9)
+trainer(train_no_states_loader, valid_no_states_loader, model_no_states1, config, device, logdir=os.path.join("runs", "11", run_name) )
+
+model_no_states2 = My_Model_No_States(input_dim=x_train_no_states.shape[1]).to(device) # 将模型和训练数据放在相同的存储位置(CPU/GPU)
+model_no_states2.optimizer = torch.optim.SGD(model_no_states2.parameters(), lr=config['learning_rate'], momentum=0.9)
+trainer(train_no_states_loader, valid_no_states_loader, model_no_states2, config, device, logdir=os.path.join("runs", "22", run_name) )
 
 sys.exit(0)
 
