@@ -5,68 +5,106 @@ from sklearn.preprocessing import MinMaxScaler
 import pandas as pd
 import numpy as np
 from sklearn.compose import ColumnTransformer
+from torch.utils.data import Dataset, DataLoader, random_split
+from numpy.typing import NDArray
+from sklearn.model_selection import KFold
 
-train_df, test_df = pd.read_csv('./data/covid.train.csv'), pd.read_csv('./data/covid.test.csv')
-desc = train_df.describe()
-x = desc['large_event.4']
-col_0 = desc.iloc[:, 0]
+# 假设你的数据是 X (特征) 和 y (标签)
 
-print(desc.loc[['mean', 'std' ]])
-data = train_df.values
-
-
-# 获取第 0 列的名称
-col_name = df.columns[0]
-
-# 用名称取列
-col = df[col_name]
-
-# 假设 df 有三列：['age', 'salary', 'category']
-# 我们只想对 'age' 和 'salary' 进行标准化
-df = pd.DataFrame({
-    'age': [25, 30, 35],
-    'salary': [50000, 60000, 70000],
-    'category': [1, 2, 1]
-})
-
-# 定义处理器：只对前两列操作
-ct = ColumnTransformer(
-    [("scaler", StandardScaler(), ['age', 'salary'])], 
-    remainder='passthrough' #未处理的列保持原样
-)
-
-# 转换数据
-scaled_data = ct.fit_transform(df)
-
-# 注意：scaled_data 默认返回 numpy 数组
-print(scaled_data)
+#
+# all_fold_scores = []
+#
+# for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
+#     # 1. 切分数据
+#     X_train, X_val = X[train_idx], X[val_idx]
+#     y_train, y_val = y[train_idx], y[val_idx]
+#
+#     # 2. 必须在循环内进行预处理，防止泄露
+#     # scaler = StandardScaler().fit(X_train)
+#     # X_train = scaler.transform(X_train)
+#     # X_val = scaler.transform(X_val)
+#
+#     # 3. 实例化模型 (确保每一折都是全新的模型)
+#     model = MyNN()
+#
+#     # 4. 训练逻辑...
+#     # ...
+#
+#     # 5. 记录这一折的评估结果
+#     # all_fold_scores.append(final_score)
+#
+# print(f"5折交叉验证平均分: {np.mean(all_fold_scores)}")
 
 
-#scaler = MinMaxScaler()
+# 假设你的数据是 numpy 数组
+# 前 2 列需要缩放，后面是其他列
+# data = np.random.rand(100, 5)
+# # 定义你需要处理的列的索引
+# column_indices = [0, 1]
+# ct = ColumnTransformer(
+#     [("scaler", StandardScaler(), column_indices)],
+#     remainder='passthrough'
+# )
+# scaled_data = ct.fit_transform(data)
+
+data = np.random.rand(100, 5)
+idx = [0, 1] # 要缩放的列
+
+# 1. 复制一份，防止覆盖原数据
+scaled_data = data.copy()
+
+train_df = pd.read_csv('./data/covid.train.csv')
+train_data = train_df.values
+
+# 2. 仅对特定列进行 fit 和 transform
 scaler = StandardScaler()
+scaled_data[:, idx] = scaler.fit_transform(data[:, idx])
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+scaler = StandardScaler()
+for fold, (train_idx, val_idx) in enumerate(kf.split(train_data)):
+    print(type(fold), type(train_idx))
+    print(fold, train_idx)
+
+    sub_train_data = train_data[train_idx]
+    sub_val_data = train_data[val_idx]
+
+    # 1. 复制一份，防止覆盖原数据
+    scaled_sub_train_data = sub_train_data.copy()
+    scaled_sub_val_data = sub_val_data.copy()
+    # 标准化
+    for col in range(38, 117):
+        scaled_sub_train_data[:, idx] = scaler.fit_transform(sub_train_data[:, idx])
+        scaled_sub_val_data[:, idx] = scaler.fit_transform(sub_val_data[:, idx])
 
 
-x_scaled = scaler.fit_transform( col )
 
-# 实验 1：存储在 logs/exp_A
-writer_a = SummaryWriter('logs/exp_A')
-# 实验 2：存储在 logs/exp_B
-writer_b = SummaryWriter('logs/exp_B')
-# tensorboard 的记录器
-writer_a.add_scalar('a', 0.1, 1)
-writer_a.add_scalar('a', 0.2, 2)
-writer_a.add_scalar('a', 0.3, 3)
-writer_a.add_scalar('a', 0.4, 4)
-writer_a.add_scalar('a', 0.5, 5)
-writer_a.add_scalar('a', 0.6, 6)
-writer_a.add_scalar('a', 0.7, 7)
-writer_b.add_scalar('a', 0.1, 1)
-writer_b.add_scalar('a', 1.2, 2)
-writer_b.add_scalar('a', 11.3, 3)
-writer_b.add_scalar('a', 20.4, 4)
-writer_b.add_scalar('a', 30.5, 5)
-writer_b.add_scalar('a', 0.6, 6)
-writer_b.add_scalar('a', 0.7, 7)
 
-writer_a.close()
-writer_b.close()
+
+#
+#
+# desc = train_df.describe()
+# names = []
+# for col in range(38,117):
+#     col_desc = desc.iloc[:, col]
+#     names.append(col_desc.name)
+# # 定义处理器：不对id和州操作
+# ct = ColumnTransformer(
+#     [("scaler", StandardScaler(), names)],
+#     remainder='passthrough' #未处理的列保持原样
+# )
+# # 转换数据
+# scaled_data = ct.fit_transform(train_df)
+#
+# # 获取处理后的列名列表
+# # 注意：转换后的列名顺序 = names 列表的顺序 + 剩余列的顺序
+# all_columns = names + [c for c in train_df.columns if c not in names]
+#
+# # 重建 DataFrame
+# scaled_df = pd.DataFrame(scaled_data, columns=all_columns)
+# # 强制恢复成原始数据的列顺序：
+# scaled_df = scaled_df[train_df.columns]
+# #scaled_df.to_csv('./data/covid.scaled_train.csv', index=False)  #index=false，不把序号写入csv
+
+
+
