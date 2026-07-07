@@ -2,6 +2,8 @@ from datetime import datetime
 import sys
 # 数值、矩阵操作
 import math
+from typing import Any
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -26,10 +28,12 @@ import myModule
 
 # 学习曲线绘制
 from torch.utils.tensorboard import SummaryWriter
+from sklearn.model_selection import KFold
+from sklearn.preprocessing import StandardScaler
+
 
 # 超参设置`config` 包含所有训练需要的超参数（便于后续的调参），以及模型需要存储的位置
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print(device)
 config = {
     'seed': 5201314,      # 随机种子，可以自己填写. :)
     'select_all': True,   # 是否选择全部的特征
@@ -44,16 +48,13 @@ config = {
 
 # 1. 打印当前解释器的绝对路径
 # print(f"当前解释器路径: {sys.executable}")
-
 # 2. 打印 Python 搜索库的路径 (sys.path)
 # print("\n库搜索路径 (sys.path):")
 # for path in sys.path:
 #     print(path)
-
 # 3. 确认 Python 版本
-print(f"\nPython 版本: {sys.version}")
+#print(f"\nPython 版本: {sys.version}")
 
-# sys.exit(0)  # 退出程序，防止后续代码执行
 
 # 可以不做修改
 def same_seed(seed:int) -> None:
@@ -72,14 +73,6 @@ def same_seed(seed:int) -> None:
     print(f'Set Seed = {seed}')
 
 
-def train_valid_split(data_set:NDArray[np.float64], valid_ratio:float, seed:int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    '''
-    数据集拆分成训练集（training set）和 验证集（validation set）
-    '''
-    valid_set_size = int(valid_ratio * len(data_set)) 
-    train_set_size = len(data_set) - valid_set_size
-    train_set, valid_set = random_split(data_set, [train_set_size, valid_set_size], generator=torch.Generator().manual_seed(seed))
-    return np.array(train_set), np.array(valid_set)
 
 
 def predict(test_loader, model, device):
@@ -113,113 +106,19 @@ class COVID19Dataset(Dataset):
     def __len__(self):
         return len(self.x)
     
- #神经网络模型,可以在以下My_Model类框架下，进行不同结构的深度模型尝试
-# class My_Model_No_States(nn.Module):
-#     def __init__(self, input_dim):
-#         super(My_Model_No_States, self).__init__()
-#         # TODO: 修改模型结构, 注意矩阵的维度（dimensions）
-#         self._optimizer = None
-#         self.layers = nn.Sequential(
-#             nn.Linear(input_dim, 16),
-#             nn.ReLU(),
-#             nn.Linear(16, 8),
-#             nn.ReLU(),
-#             nn.Linear(8, 1)
-#         )
-#
-#     def forward(self, x):
-#         x = self.layers(x)
-#         x = x.squeeze(1) # (B, 1) -> (B)
-#         return x
-#
-#     # 1. 定义 Getter: 使用 @property 装饰器
-#     @property
-#     def optimizer(self):
-#         return self._optimizer
-#
-#     # 2. 定义 Setter: 使用 @属性名.setter 装饰器
-#     @optimizer.setter
-#     def optimizer(self, value:torch.optim.Optimizer):
-#         if not isinstance(value, torch.optim.Optimizer):
-#             raise ValueError("必须是Optimizer")
-#         self._optimizer = value
-#
-#
-#
-# class My_Model_Emebedding(nn.Module):
-#     def __init__(self, num_cities:int,num_numerical_features:int):
-#         super(My_Model_Emebedding, self).__init__()
-#         # TODO: 修改模型结构, 注意矩阵的维度（dimensions）
-#
-#         # 1. Embedding 层：处理离散的城市ID
-#         self.embedding_dim = 2
-#         self.embedding = nn.Embedding(num_embeddings=num_cities, embedding_dim=self.embedding_dim)
-#         # 2. 全连接层：输入维度 = Embedding维度 + 数值特征维度
-#         # 假设最终输出维度是 1 (例如预测房价或流量)
-#         self.fc = nn.Sequential(
-#             nn.Linear(self.embedding_dim + num_numerical_features, 16),
-#             nn.ReLU(),
-#             nn.Linear(16, 8),
-#             nn.ReLU(),
-#             nn.Linear(8, 1)
-#         )
-#
-#
-#
-#
-#     def forward(self, x):
-#         city_indices = x[:num_cities]
-#         numerical_data = x[num_cities:num_cities+num_numerical_features]
-#         # 步骤 A：获取 Embedding 向量
-#         city_vec = self.embedding(city_indices)  # 输出形状: (batch_size, embedding_dim)
-#         # 步骤 B：将 Embedding 和数值特征拼接到一起
-#         # combined 形状: (batch_size, embedding_dim + num_numerical_features)
-#         combined = torch.cat([city_vec, numerical_data], dim=1)
-#         # 步骤 C：送入全连接层进行计算
-#         output = self.fc(combined)
-#         output = output.squeeze(1) # (B, 1) -> (B)
-#         return output
-#
-#
-#特征选择: 通过修改下面的函数，选择自己认为有用的特征
-def select_feat(train_data:NDArray[np.float64],
-                valid_data:NDArray[np.float64],
-                test_data:NDArray[np.float64], feat_idx=None):
-    '''
-    特征选择
-    选择较好的特征用来拟合回归模型
-    '''
-    #最后一列
-    y_train, y_valid = train_data[:,-1], valid_data[:,-1]
-    raw_x_train, raw_x_valid, raw_x_test = train_data[:,:-1], valid_data[:,:-1], test_data
-    if feat_idx is None:
-        return raw_x_train, raw_x_valid, raw_x_test, y_train, y_valid
-    else:
-        return raw_x_train[:,feat_idx], raw_x_valid[:,feat_idx], raw_x_test[:,feat_idx], y_train, y_valid
-
 
 def trainer(train_loader:DataLoader, valid_loader:DataLoader, 
-            model:nn.Module, config:dict, device:torch.device|str,logdir:str)-> None:
+            model:nn.Module, config:dict, device:torch.device|str)-> tuple[list[Any], list[Any]] :
 
     criterion = nn.MSELoss(reduction='mean') # 损失函数的定义 均方误差损失函数  ((y-y_pred)**2)/n,适合回归问题预测一个数值
     #对异常值敏感 (Outliers)：因为平方的存在，如果数据集中有极个别异常离谱的点（离群点），MSE 会给这些点赋予极高的权重。这会导致模型为了“照顾”这些离群点而牺牲掉大部分正常数据的准确度。
     #数据范围：确保你的模型输出和标签在数值规模上比较接近。如果标签是 0-1 之间的数，但你的模型输出是 1000，MSE 的值会巨大无比，可能导致训练瞬间崩溃（梯度爆炸）。
     #crossEntropyLoss: 适合分类问题，尤其是多分类问题。它衡量的是预测的概率分布与真实标签分布之间的差异。对于二分类问题，也可以使用 BCEWithLogitsLoss。
 
-
-    
-    # tensorboard 的记录器
-    if logdir is not None:
-        writer = SummaryWriter(log_dir=logdir)
-    else:
-        writer = SummaryWriter()
-
-    if not os.path.isdir('./models'):
-        # 创建文件夹-用于存储模型
-        os.mkdir('./models')
-
     n_epochs, best_loss, step, early_stop_count = config['n_epochs'], math.inf, 0, 0
 
+    mean_train_loss_list = []
+    mean_valid_loss_list = []
     for epoch in range(n_epochs):
         model.train() # 训练模式
         loss_record = []
@@ -231,7 +130,6 @@ def trainer(train_loader:DataLoader, valid_loader:DataLoader,
         for x, y in train_pbar:
             model.optimizer.zero_grad()               # 将梯度置0.
             x, y = x.to(device), y.to(device)   # 将数据一到相应的存储位置(CPU/GPU)
-            print(x.shape, y.shape)
             pred = model(x)
             loss = criterion(pred, y)
             loss.backward()                     # 反向传播 计算梯度.
@@ -243,8 +141,8 @@ def trainer(train_loader:DataLoader, valid_loader:DataLoader,
             train_pbar.set_postfix({'loss': loss.detach().item()})
 
         mean_train_loss = sum(loss_record)/len(loss_record)
-        # 每个epoch,在tensorboard 中记录训练的损失（后面可以展示出来）
-        writer.add_scalar('Loss/train', mean_train_loss, step)
+        mean_train_loss_list.append( mean_train_loss )
+
 
         model.eval() # 将模型设置成 evaluation 模式.
         loss_record = []
@@ -254,45 +152,138 @@ def trainer(train_loader:DataLoader, valid_loader:DataLoader,
                 pred = model(x)
                 loss = criterion(pred, y)
             loss_record.append(loss.item())
-            
-        mean_valid_loss = sum(loss_record)/len(loss_record)
-        print(f'Epoch [{epoch+1}/{n_epochs}]: Train loss: {mean_train_loss:.4f}, Valid loss: {mean_valid_loss:.4f}')
-        # 每个epoch,在tensorboard 中记录验证的损失（后面可以展示出来）
-        writer.add_scalar('Loss/valid', mean_valid_loss, step)
+
+        mean_valid_loss = sum(loss_record) / len(loss_record)
+        mean_valid_loss_list.append( mean_valid_loss )
+        #print(f'Epoch [{epoch+1}/{n_epochs}]: Train loss: {mean_train_loss:.4f}, Valid loss: {mean_valid_loss:.4f}')
 
         if mean_valid_loss < best_loss:
             best_loss = mean_valid_loss
-            torch.save(model.state_dict(), config['save_path']) # 模型保存
-            print('Saving model with loss {:.3f}...'.format(best_loss))
+            #torch.save(model.state_dict(), config['save_path']) # 模型保存
+            #print('Saving model with loss {:.3f}...'.format(best_loss))
             early_stop_count = 0
         else: 
             early_stop_count += 1
 
         if early_stop_count >= config['early_stop']:
             print('\nModel is not improving, so we halt the training session.')
-            return
+            break
+
+    return mean_train_loss_list, mean_valid_loss_list
+
+
+def write_model_stats_to_tensorboard(model_name, model_data, base_log_dir="runs"):
+    """
+    model_data: 对应 model_loss_dic["myModel1"]
+    """
+    # 1. 提取历史数据 (list of lists)
+    train_history = model_data["mean_train_loss_history"]  # [[epoch1, epoch2...], [epoch1...]]
+    valid_history = model_data["mean_valid_loss_history"]
+
+    # 2. 对齐并计算均值 (处理不同 Fold 长度不一致的问题)
+    def compute_mean_curve(history_list):
+        print(history_list[0])
+        max_len = max(len(h) for h in history_list)
+        # 用最后一个值填充，确保矩阵整齐
+        aligned = np.full((len(history_list), max_len), np.nan)
+        for i, h in enumerate(history_list):
+            aligned[i, :len(h)] = h      # 把该 Fold 真实的 Loss 填进去
+            aligned[i, len(h):] = h[-1]  # 把剩下的空间用“最后一次的值”填满
+        return np.nanmean(aligned, axis=0), np.nanstd(aligned, axis=0)
+
+    mean_train, std_train = compute_mean_curve(train_history)
+    mean_valid, std_valid = compute_mean_curve(valid_history)
+
+    # 3. 写入 TensorBoard
+    writer = SummaryWriter(log_dir=os.path.join(base_log_dir, model_name))
+
+    for epoch in range(len(mean_train)):
+        writer.add_scalar('Loss/mean_train', mean_train[epoch], epoch)
+        #writer.add_scalar('Loss/std_train', std_train[epoch], epoch)
+        writer.add_scalar('Loss/mean_valid', mean_valid[epoch], epoch)
+        #writer.add_scalar('Loss/std_valid', std_valid[epoch], epoch)
+
+    writer.close()
+    print(f"模型 {model_name} 的统计曲线已写入 TensorBoard。")
 
 
 
 # 导入数据集
 #1. 从文件中读取数据`pd.read_csv`
-#2. 数据拆分成三份 训练（training）、验证（validation）、测试（testing）
-#    - `train_valid_split`：  分成训练、验证
-#    - `select_feat`：拆分特征和label，并进行特征选择
-#    - `COVID19Dataset`: 分别将训练、验证、测试集的特征和label组合成可以用于快速迭代训练的数据集`train_dataset, valid_dataset, test_dataset`
-#这部分不用修改</b>
+#2. 通过KFold将数据拆分成 训练（training）、验证（validation）
+#    - 对数据处理，标准化，特征选择等操作，产生对应的COVID19Dataset
+#    - 构建不同模型，对模型不设置
+#    - 进行训练
+
 
 # 设置随机种子便于复现
 same_seed(config['seed'])
 
-
-# 训练集大小(train_data size) : 2699 x 118 (id + 37 states + 16 features x 5 days) 
+# 训练集大小(train_data size) : 2699 x 118 (id + 37 states + 16 features x 5 days 90个，最后一个是标签)
 # 测试集大小(test_data size）: 1078 x 117 (没有label (last day's positive rate))
-pd.set_option('display.max_column', 200) # 设置显示数据的列数
 train_df, test_df = pd.read_csv('./data/covid.train.csv'), pd.read_csv('./data/covid.test.csv')
 train_data, test_data = train_df.values, test_df.values
 
-train_data, valid_data = train_valid_split(train_data, config['valid_ratio'], config['seed'])
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+total_folds = kf.get_n_splits()
+run_name = datetime.now().strftime("%d_%H-%M-%S")
+scaler = StandardScaler()
+model_loss_dic = {}
+for fold, (train_idx, val_idx) in enumerate(kf.split(train_data)):
+    print(type(fold), type(train_idx))
+    print(fold, train_idx)
+
+    y_train, y_valid = train_data[train_idx, -1], train_data[val_idx, -1]
+    x_train = train_data[train_idx,:-1]
+    x_valid = train_data[val_idx,:-1]
+
+    # 1. 复制一份，防止覆盖原数据
+    x_scaled_train_data = x_train.copy()
+    x_scaled_val_data = x_valid.copy()
+    # 标准化
+    for col in range(38, 117):
+        # 1. 在训练集上 fit 并 transform
+        # 注意：这里需要 reshape，因为 sklearn 要求输入为二维 (n_samples, 1)
+        col_train = x_train[:, col].reshape(-1, 1)
+        col_val = x_valid[:, col].reshape(-1, 1)
+        # 注意：不要传染到x_scaled_val_data
+        scaler.fit(col_train)
+        x_scaled_train_data[:, col] = scaler.transform(col_train).flatten()
+        x_scaled_val_data[:, col] = scaler.transform(col_val).flatten()
+
+    train_dataset_no_states = COVID19Dataset(x_train,y_train),
+
+
+    train_loader = DataLoader(COVID19Dataset(x_train,y_train), batch_size=config['batch_size'], shuffle=True, pin_memory=True)
+    val_loader = DataLoader(COVID19Dataset(x_valid, y_valid), batch_size=config['batch_size'], shuffle=True, pin_memory=True)
+
+
+    log_dir = os.path.join("runs", "baseline", run_name)
+    # tensorboard 的记录器
+    #writer = SummaryWriter(log_dir=logdir)
+    # 每个epoch,在tensorboard 中记录训练的损失（后面可以展示出来）
+    #writer.add_scalar('Loss/train', mean_train_loss, step)
+    # 开始训练
+    origin_model = myModule.Origin_Model(input_dim=x_train.shape[1]).to(device)  # 将模型和训练数据放在相同的存储位置(CPU/GPU)
+    origin_model.optimizer = torch.optim.SGD(origin_model.parameters(), lr=config['learning_rate'],momentum=0.9)
+    mean_train_loss, mean_valid_loss = trainer(train_loader, val_loader, origin_model, config, device)
+    origin_model.__class__
+    if "myModel1" not in model_loss_dic:
+        model_loss_dic["myModel1"] = { "mean_train_loss_history": [],  "mean_valid_loss_history": [], }
+    print(mean_train_loss)
+    print(mean_valid_loss)
+    model_loss_dic["myModel1"]["mean_train_loss_history"].append(mean_train_loss)
+    model_loss_dic["myModel1"]["mean_valid_loss_history"].append(mean_valid_loss)
+
+
+for model_name, model_data in model_loss_dic.items():
+    write_model_stats_to_tensorboard(model_name, model_data)
+
+
+
+
+sys.exit(0)
+
 
 # 打印数据的大小
 print(f"""train_data size: {train_data.shape} 

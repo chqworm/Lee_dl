@@ -3,9 +3,9 @@ import torch.nn as nn
 
 
 # 神经网络模型,可以在以下My_Model类框架下，进行不同结构的深度模型尝试
-class My_Model_No_States(nn.Module):
+class Origin_Model(nn.Module):
     def __init__(self, input_dim):
-        super(My_Model_No_States, self).__init__()
+        super(My_Model, self).__init__()
         # TODO: 修改模型结构, 注意矩阵的维度（dimensions）
         self._optimizer = None
         self.layers = nn.Sequential(

@@ -108,3 +108,28 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(train_data)):
 
 
 
+# #特征选择: 通过修改下面的函数，选择自己认为有用的特征
+# def select_feat(train_data:NDArray[np.float64],
+#                 valid_data:NDArray[np.float64],
+#                 test_data:NDArray[np.float64], feat_idx=None):
+#     '''
+#     特征选择
+#     选择较好的特征用来拟合回归模型
+#     '''
+#     #最后一列
+#     y_train, y_valid = train_data[:,-1], valid_data[:,-1]
+#     raw_x_train, raw_x_valid, raw_x_test = train_data[:,:-1], valid_data[:,:-1], test_data
+#     if feat_idx is None:
+#         return raw_x_train, raw_x_valid, raw_x_test, y_train, y_valid
+#     else:
+#         return raw_x_train[:,feat_idx], raw_x_valid[:,feat_idx], raw_x_test[:,feat_idx], y_train, y_valid
+
+
+# def train_valid_split(data_set:NDArray[np.float64], valid_ratio:float, seed:int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+#     '''
+#     数据集拆分成训练集（training set）和 验证集（validation set）
+#     '''
+#     valid_set_size = int(valid_ratio * len(data_set))
+#     train_set_size = len(data_set) - valid_set_size
+#     train_set, valid_set = random_split(data_set, [train_set_size, valid_set_size], generator=torch.Generator().manual_seed(seed))
+#     return np.array(train_set), np.array(valid_set)
