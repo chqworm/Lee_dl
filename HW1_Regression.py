@@ -38,7 +38,7 @@ config = {
     'seed': 5201314,      # 随机种子，可以自己填写. :)
     'select_all': True,   # 是否选择全部的特征
     'valid_ratio': 0.2,   # 验证集大小(validation_size) = 训练集大小(train_size) * 验证数据占比(valid_ratio)
-    'n_epochs': 30,     # 数据遍历训练次数
+    'n_epochs': 3000,     # 数据遍历训练次数
     'batch_size': 256,
     'learning_rate': 1e-5,
     'early_stop': 400,    # 如果early_stop轮损失没有下降就停止训练.
@@ -172,7 +172,7 @@ def trainer(train_loader:DataLoader, valid_loader:DataLoader,
     return mean_train_loss_list, mean_valid_loss_list
 
 
-def write_model_stats_to_tensorboard(model_name, model_data, base_log_dir="runs"):
+def write_model_stats_to_tensorboard(model_name, model_data, base_log_dir:str="runs"):
     """
     model_data: 对应 model_loss_dic["myModel1"]
     """
@@ -206,7 +206,17 @@ def write_model_stats_to_tensorboard(model_name, model_data, base_log_dir="runs"
     writer.close()
     print(f"模型 {model_name} 的统计曲线已写入 TensorBoard。")
 
-
+def trainer2(x_train, y_train,x_valid,y_valid, model:nn.Module,model_loss_dic:dict, config:dict, device:torch.device|str)-> None :
+    train_loader = DataLoader(COVID19Dataset(x_train, y_train), batch_size=config['batch_size'], shuffle=True,
+                              pin_memory=True)
+    val_loader = DataLoader(COVID19Dataset(x_valid, y_valid), batch_size=config['batch_size'], shuffle=True,
+                            pin_memory=True)
+    mean_train_loss, mean_valid_loss = trainer(train_loader, val_loader, model, config, device)
+    trainName = model.__class__.__name__
+    if trainName not in model_loss_dic:
+        model_loss_dic[trainName] = {"mean_train_loss_history": [], "mean_valid_loss_history": [], }
+    model_loss_dic[trainName]["mean_train_loss_history"].append(mean_train_loss)
+    model_loss_dic[trainName]["mean_valid_loss_history"].append(mean_valid_loss)
 
 # 导入数据集
 #1. 从文件中读取数据`pd.read_csv`
@@ -219,10 +229,16 @@ def write_model_stats_to_tensorboard(model_name, model_data, base_log_dir="runs"
 # 设置随机种子便于复现
 same_seed(config['seed'])
 
-# 训练集大小(train_data size) : 2699 x 118 (id + 37 states + 16 features x 5 days 90个，最后一个是标签)
+# 训练集大小(train_data size) : 2699 x 118 (id + 37 states + 16 features x 5 days 80个，最后一个是标签)
 # 测试集大小(test_data size）: 1078 x 117 (没有label (last day's positive rate))
-train_df, test_df = pd.read_csv('./data/covid.train.csv'), pd.read_csv('./data/covid.test.csv')
-train_data, test_data = train_df.values, test_df.values
+train_df = pd.read_csv('./data/covid.train.csv')
+train_data = train_df.values
+#把第一列id去掉
+train_data = train_data[:,1:]
+
+# test_df = pd.read_csv('./data/covid.test.csv')
+# test_data = test_df.values
+# test_data = test_data[:,1:]
 
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
 total_folds = kf.get_n_splits()
@@ -238,42 +254,39 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(train_data)):
     x_valid = train_data[val_idx,:-1]
 
     # 1. 复制一份，防止覆盖原数据
-    x_scaled_train_data = x_train.copy()
-    x_scaled_val_data = x_valid.copy()
+    x_scaled_train = x_train.copy()
+    x_scaled_val = x_valid.copy()
     # 标准化
-    for col in range(38, 117):
+    for col in range(37, 116):
         # 1. 在训练集上 fit 并 transform
         # 注意：这里需要 reshape，因为 sklearn 要求输入为二维 (n_samples, 1)
         col_train = x_train[:, col].reshape(-1, 1)
         col_val = x_valid[:, col].reshape(-1, 1)
         # 注意：不要传染到x_scaled_val_data
         scaler.fit(col_train)
-        x_scaled_train_data[:, col] = scaler.transform(col_train).flatten()
-        x_scaled_val_data[:, col] = scaler.transform(col_val).flatten()
-
-    train_dataset_no_states = COVID19Dataset(x_train,y_train),
+        x_scaled_train[:, col] = scaler.transform(col_train).flatten()
+        x_scaled_val[:, col] = scaler.transform(col_val).flatten()
 
 
-    train_loader = DataLoader(COVID19Dataset(x_train,y_train), batch_size=config['batch_size'], shuffle=True, pin_memory=True)
-    val_loader = DataLoader(COVID19Dataset(x_valid, y_valid), batch_size=config['batch_size'], shuffle=True, pin_memory=True)
 
 
-    log_dir = os.path.join("runs", "baseline", run_name)
-    # tensorboard 的记录器
-    #writer = SummaryWriter(log_dir=logdir)
-    # 每个epoch,在tensorboard 中记录训练的损失（后面可以展示出来）
-    #writer.add_scalar('Loss/train', mean_train_loss, step)
     # 开始训练
-    origin_model = myModule.Origin_Model(input_dim=x_train.shape[1]).to(device)  # 将模型和训练数据放在相同的存储位置(CPU/GPU)
-    origin_model.optimizer = torch.optim.SGD(origin_model.parameters(), lr=config['learning_rate'],momentum=0.9)
-    mean_train_loss, mean_valid_loss = trainer(train_loader, val_loader, origin_model, config, device)
-    origin_model.__class__
-    if "myModel1" not in model_loss_dic:
-        model_loss_dic["myModel1"] = { "mean_train_loss_history": [],  "mean_valid_loss_history": [], }
-    print(mean_train_loss)
-    print(mean_valid_loss)
-    model_loss_dic["myModel1"]["mean_train_loss_history"].append(mean_train_loss)
-    model_loss_dic["myModel1"]["mean_valid_loss_history"].append(mean_valid_loss)
+    #最简单的模型，没有标准化，没有去除独热数据
+    # originModel = myModule.OriginModel(input_dim=x_train.shape[1]).to(device)  # 将模型和训练数据放在相同的存储位置(CPU/GPU)
+    # originModel.optimizer = torch.optim.SGD(originModel.parameters(), lr=config['learning_rate'],momentum=0.9)
+    # trainer2(x_train, y_train, x_valid, y_valid,originModel, model_loss_dic, config, device )
+
+    # 模型层多一些，去除独热数据，标准化数据
+    # x_scaled_train_feature = x_scaled_train[:, 37:]
+    # x_scaled_val_feature = x_scaled_val[:, 37:]
+    # improveModel1 = myModule.ImproveModel1(input_dim=x_scaled_train_feature.shape[1]).to(device)
+    # improveModel1.optimizer = torch.optim.Adam(improveModel1.parameters(), lr=config['learning_rate'] )
+    # trainer2(x_scaled_train_feature, y_train, x_scaled_val_feature, y_valid, improveModel1, model_loss_dic, config, device)
+
+    # 模型层多一些，独热数据embedding，标准化数据
+    improveModel2 = myModule.ImproveModel2( 37 , 79).to(device)
+    improveModel2.optimizer = torch.optim.Adam(improveModel2.parameters(), lr=config['learning_rate'])
+    trainer2(x_scaled_train, y_train, x_scaled_val, y_valid, improveModel2, model_loss_dic, config, device)
 
 
 for model_name, model_data in model_loss_dic.items():
