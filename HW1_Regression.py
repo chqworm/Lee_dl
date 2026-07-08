@@ -12,7 +12,6 @@ import pandas as pd
 import os
 import csv
 
-from sympy.codegen.ast import none
 # 进度条
 from tqdm import tqdm
 # 如果是使用notebook 推荐使用以下（颜值更高 : ) ）
@@ -38,10 +37,10 @@ config = {
     'seed': 5201314,      # 随机种子，可以自己填写. :)
     'select_all': True,   # 是否选择全部的特征
     'valid_ratio': 0.2,   # 验证集大小(validation_size) = 训练集大小(train_size) * 验证数据占比(valid_ratio)
-    'n_epochs': 3000,     # 数据遍历训练次数
+    'n_epochs': 2000,     # 数据遍历训练次数
     'batch_size': 256,
     'learning_rate': 1e-5,
-    'early_stop': 400,    # 如果early_stop轮损失没有下降就停止训练.
+    'early_stop': 1000,    # 如果early_stop轮损失没有下降就停止训练.
     'save_path': './models/model.ckpt'  # 模型存储的位置
 }
 
@@ -119,15 +118,14 @@ def trainer(train_loader:DataLoader, valid_loader:DataLoader,
 
     mean_train_loss_list = []
     mean_valid_loss_list = []
-    for epoch in range(n_epochs):
+    
+    pbar = tqdm(range(n_epochs), desc= model.__class__.__name__ , total=n_epochs,leave=True)
+    for epoch in pbar:
         model.train() # 训练模式
         loss_record = []
-
-        # tqdm可以帮助我们显示训练的进度  position=4,
-        train_pbar = tqdm(train_loader, leave=True)
-        # 设置进度条的左边 ： 显示第几个Epoch了
-        train_pbar.set_description(f'Epoch [{epoch+1}/{n_epochs}]')
-        for x, y in train_pbar:
+        
+        # 训练一个批次
+        for x, y in train_loader:
             model.optimizer.zero_grad()               # 将梯度置0.
             x, y = x.to(device), y.to(device)   # 将数据一到相应的存储位置(CPU/GPU)
             pred = model(x)
@@ -136,12 +134,10 @@ def trainer(train_loader:DataLoader, valid_loader:DataLoader,
             model.optimizer.step()                    # 更新网络参数
             step += 1
             loss_record.append(loss.detach().item())
-            
-            # 训练完一个batch的数据，将loss 显示在进度条的右边
-            train_pbar.set_postfix({'loss': loss.detach().item()})
 
         mean_train_loss = sum(loss_record)/len(loss_record)
         mean_train_loss_list.append( mean_train_loss )
+        
 
 
         model.eval() # 将模型设置成 evaluation 模式.
@@ -155,7 +151,7 @@ def trainer(train_loader:DataLoader, valid_loader:DataLoader,
 
         mean_valid_loss = sum(loss_record) / len(loss_record)
         mean_valid_loss_list.append( mean_valid_loss )
-        #print(f'Epoch [{epoch+1}/{n_epochs}]: Train loss: {mean_train_loss:.4f}, Valid loss: {mean_valid_loss:.4f}')
+        #pbar.set_postfix({'平均训练损失': mean_train_loss, '平均验证损失': mean_valid_loss})
 
         if mean_valid_loss < best_loss:
             best_loss = mean_valid_loss
@@ -165,9 +161,9 @@ def trainer(train_loader:DataLoader, valid_loader:DataLoader,
         else: 
             early_stop_count += 1
 
-        if early_stop_count >= config['early_stop']:
-            print('\nModel is not improving, so we halt the training session.')
-            break
+        # if early_stop_count >= config['early_stop']:
+        #     print('\nModel is not improving, so we halt the training session.')
+        #     break
 
     return mean_train_loss_list, mean_valid_loss_list
 
@@ -182,7 +178,6 @@ def write_model_stats_to_tensorboard(model_name, model_data, base_log_dir:str="r
 
     # 2. 对齐并计算均值 (处理不同 Fold 长度不一致的问题)
     def compute_mean_curve(history_list):
-        print(history_list[0])
         max_len = max(len(h) for h in history_list)
         # 用最后一个值填充，确保矩阵整齐
         aligned = np.full((len(history_list), max_len), np.nan)
@@ -206,17 +201,17 @@ def write_model_stats_to_tensorboard(model_name, model_data, base_log_dir:str="r
     writer.close()
     print(f"模型 {model_name} 的统计曲线已写入 TensorBoard。")
 
-def trainer2(x_train, y_train,x_valid,y_valid, model:nn.Module,model_loss_dic:dict, config:dict, device:torch.device|str)-> None :
+def trainer2(x_train, y_train,x_valid,y_valid, experiment_name: str, model:nn.Module,model_loss_dic:dict, config:dict, device:torch.device|str)-> None :
     train_loader = DataLoader(COVID19Dataset(x_train, y_train), batch_size=config['batch_size'], shuffle=True,
                               pin_memory=True)
     val_loader = DataLoader(COVID19Dataset(x_valid, y_valid), batch_size=config['batch_size'], shuffle=True,
                             pin_memory=True)
     mean_train_loss, mean_valid_loss = trainer(train_loader, val_loader, model, config, device)
-    trainName = model.__class__.__name__
-    if trainName not in model_loss_dic:
-        model_loss_dic[trainName] = {"mean_train_loss_history": [], "mean_valid_loss_history": [], }
-    model_loss_dic[trainName]["mean_train_loss_history"].append(mean_train_loss)
-    model_loss_dic[trainName]["mean_valid_loss_history"].append(mean_valid_loss)
+    
+    if experiment_name not in model_loss_dic:
+        model_loss_dic[experiment_name] = {"mean_train_loss_history": [], "mean_valid_loss_history": [], }
+    model_loss_dic[experiment_name]["mean_train_loss_history"].append(mean_train_loss)
+    model_loss_dic[experiment_name]["mean_valid_loss_history"].append(mean_valid_loss)
 
 # 导入数据集
 #1. 从文件中读取数据`pd.read_csv`
@@ -242,17 +237,14 @@ train_data = train_data[:,1:]
 
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
 total_folds = kf.get_n_splits()
-run_name = datetime.now().strftime("%d_%H-%M-%S")
 scaler = StandardScaler()
 model_loss_dic = {}
+# 1. 外层进度条：监控 Fold
 for fold, (train_idx, val_idx) in enumerate(kf.split(train_data)):
-    print(type(fold), type(train_idx))
-    print(fold, train_idx)
 
     y_train, y_valid = train_data[train_idx, -1], train_data[val_idx, -1]
     x_train = train_data[train_idx,:-1]
     x_valid = train_data[val_idx,:-1]
-
     # 1. 复制一份，防止覆盖原数据
     x_scaled_train = x_train.copy()
     x_scaled_val = x_valid.copy()
@@ -267,100 +259,75 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(train_data)):
         x_scaled_train[:, col] = scaler.transform(col_train).flatten()
         x_scaled_val[:, col] = scaler.transform(col_val).flatten()
 
+    models = []
+    originModel = myModule.OriginModel(input_dim=x_train.shape[1]).to(device)  # 将模型和训练数据放在相同的存储位置(CPU/GPU)
+    originModel.optimizer = torch.optim.SGD(originModel.parameters(), lr=config['learning_rate'],momentum=0.9)
+    models.append({
+    "experiment_name": "simple",
+    "model": originModel,
+    "x_train": x_train,
+    "x_valid": x_valid,
+    "description": "最简单的模型，没有标准化，没有去除独热数据"
+    })
 
+    x_train_feature = x_train[:, 37:]
+    x_valid_feature = x_valid[:, 37:]
 
+    originModel2 = myModule.OriginModel(input_dim=x_train_feature.shape[1]).to(device)  # 将模型和训练数据放在相同的存储位置(CPU/GPU)
+    originModel2.optimizer = torch.optim.SGD(originModel2.parameters(), lr=config['learning_rate'],momentum=0.9)
+    models.append({
+    "experiment_name": "simplefeature",    
+    "model": originModel2,
+    "x_train": x_train_feature,
+    "x_valid": x_valid_feature,
+    "description": "最简单的模型，没有标准化，去除独热数据"
+    })
 
-    # 开始训练
-    #最简单的模型，没有标准化，没有去除独热数据
-    # originModel = myModule.OriginModel(input_dim=x_train.shape[1]).to(device)  # 将模型和训练数据放在相同的存储位置(CPU/GPU)
-    # originModel.optimizer = torch.optim.SGD(originModel.parameters(), lr=config['learning_rate'],momentum=0.9)
-    # trainer2(x_train, y_train, x_valid, y_valid,originModel, model_loss_dic, config, device )
+    
+    # improveModel1 = myModule.ImproveModel1(input_dim=x_train_feature.shape[1]).to(device)
+    # improveModel1.optimizer = torch.optim.Adam(improveModel1.parameters(), lr=config['learning_rate'] )
+    # models.append({
+    # "experiment_name": "improveModel1",
+    # "model": improveModel1,
+    # "x_train": x_train_feature,
+    # "x_valid": x_valid_feature,
+    # "description": "模型层多一些，去除独热数据"
+    # })
 
-    # 模型层多一些，去除独热数据，标准化数据
     # x_scaled_train_feature = x_scaled_train[:, 37:]
     # x_scaled_val_feature = x_scaled_val[:, 37:]
     # improveModel1 = myModule.ImproveModel1(input_dim=x_scaled_train_feature.shape[1]).to(device)
     # improveModel1.optimizer = torch.optim.Adam(improveModel1.parameters(), lr=config['learning_rate'] )
-    # trainer2(x_scaled_train_feature, y_train, x_scaled_val_feature, y_valid, improveModel1, model_loss_dic, config, device)
+    # models.append({
+    # "experiment_name": "improveModel1scaled",
+    # "model": improveModel1,
+    # "x_train": x_scaled_train_feature,
+    # "x_valid": x_scaled_val_feature,
+    # "description": "模型层多一些，去除独热数据，标准化数据"
+    # })
 
-    # 模型层多一些，独热数据embedding，标准化数据
-    improveModel2 = myModule.ImproveModel2( 37 , 79).to(device)
-    improveModel2.optimizer = torch.optim.Adam(improveModel2.parameters(), lr=config['learning_rate'])
-    trainer2(x_scaled_train, y_train, x_scaled_val, y_valid, improveModel2, model_loss_dic, config, device)
 
+    # improveModel2 = myModule.ImproveModel2( 37 , 79).to(device)
+    # improveModel2.optimizer = torch.optim.Adam(improveModel2.parameters(), lr=config['learning_rate'])
+    # models.append({
+    # "model": improveModel2,
+    # "x_train": x_scaled_train,
+    # "x_valid": x_scaled_val,
+    # "description": "模型层多一些,独热数据embedding,标准化数据"
+    # })
+    train_pbar = tqdm(models, leave=False, desc=f"Fold {fold+1}/{total_folds}", total=len(models))
+    for model_info in train_pbar:
+        train_pbar.set_postfix({"模型描述": model_info["description"]})
+        trainer2(model_info["x_train"], y_train, model_info["x_valid"], 
+                 y_valid, model_info["experiment_name"], model_info["model"], model_loss_dic, config, device)   
+    break  # 只跑一个Fold，便于调试，后续可以去掉
 
+    
+
+run_name = datetime.now().strftime("%Y%m%d-%H%M%S")
+log_dir = f'runs/experiment_{run_name}'
 for model_name, model_data in model_loss_dic.items():
-    write_model_stats_to_tensorboard(model_name, model_data)
+    write_model_stats_to_tensorboard(model_name, model_data , base_log_dir=log_dir)
 
 
 
-
-sys.exit(0)
-
-
-# 打印数据的大小
-print(f"""train_data size: {train_data.shape} 
-valid_data size: {valid_data.shape} 
-test_data size: {test_data.shape}""")
-
-feat_len = len(train_data[0]) #118 (id + 37 states + 16 features x 5 days)
-# 特征选择
-# 没有id和states
-feat_idx_no_states = list(range(38, 117))
-x_train_no_states, x_valid_no_states, x_test_no_states, y_train, y_valid = select_feat(train_data, valid_data, test_data,feat_idx_no_states)
-feat_idx_no_id = list(range(1, 117))
-x_train_no_id, x_valid_no_id, x_test_no_id, _, _ = select_feat(train_data, valid_data, test_data,feat_idx_no_id)
-
-
-
-
-train_dataset_no_states, valid_dataset_no_states, test_dataset_no_states = COVID19Dataset(x_train_no_states, y_train), \
-                                            COVID19Dataset(x_valid_no_states, y_valid), \
-                                            COVID19Dataset(x_test_no_states)
-
-train_dataset_no_id, valid_dataset_no_id, test_dataset_no_id = COVID19Dataset(x_train_no_id, y_train), \
-                                            COVID19Dataset(x_valid_no_id, y_valid), \
-                                            COVID19Dataset(x_test_no_id)
-
-
-# 使用Pytorch中Dataloader类按照Batch将数据集加载
-train_no_states_loader = DataLoader(train_dataset_no_states, batch_size=config['batch_size'], shuffle=True, pin_memory=True)
-valid_no_states_loader = DataLoader(valid_dataset_no_states, batch_size=config['batch_size'], shuffle=True, pin_memory=True)
-test_no_states_loader = DataLoader(test_dataset_no_states, batch_size=config['batch_size'], shuffle=False, pin_memory=True)
-
-train_no_id_loader = DataLoader(train_dataset_no_id, batch_size=config['batch_size'], shuffle=True, pin_memory=True)
-valid_no_id_loader = DataLoader(valid_dataset_no_id, batch_size=config['batch_size'], shuffle=True, pin_memory=True)
-test_no_id_loader = DataLoader(test_dataset_no_id, batch_size=config['batch_size'], shuffle=False, pin_memory=True)
-
-run_name = datetime.now().strftime("%d_%H-%M-%S")
-log_dir = os.path.join("runs", "experiment_name", run_name)
-
-#开始训练
-model_no_states1 = myModule.My_Model_No_States(input_dim=x_train_no_states.shape[1]).to(device) # 将模型和训练数据放在相同的存储位置(CPU/GPU)
-model_no_states1.optimizer = torch.optim.SGD(model_no_states1.parameters(), lr=config['learning_rate'], momentum=0.9)
-trainer(train_no_states_loader, valid_no_states_loader, model_no_states1, config, device, logdir=os.path.join("runs", "11", run_name) )
-
-model_no_states2 = myModule.My_Model_No_States(input_dim=x_train_no_states.shape[1]).to(device) # 将模型和训练数据放在相同的存储位置(CPU/GPU)
-model_no_states2.optimizer = torch.optim.SGD(model_no_states2.parameters(), lr=config['learning_rate'], momentum=0.9)
-trainer(train_no_states_loader, valid_no_states_loader, model_no_states2, config, device, logdir=os.path.join("runs", "22", run_name) )
-
-sys.exit(0)
-
-
-#不要再在 Notebook 中使用 %tensorboard。
-#改为使用 VS Code 自带的 TensorBoard 插件（安装在左侧侧边栏中），或者直接在外部终端运行命令：
-#Bash
-#tensorboard --logdir=./runs/ --port=
-#测试集的预测结果保存到`pred.csv`
-def save_pred(preds, file):
-    ''' 将模型保存到指定位置'''
-    with open(file, 'w') as fp:
-        writer = csv.writer(fp)
-        writer.writerow(['id', 'tested_positive'])
-        for i, p in enumerate(preds):
-            writer.writerow([i, p])
-
-model = My_Model_No_States(input_dim=x_train_no_states.shape[1]).to(device)
-model.load_state_dict(torch.load(config['save_path']))
-preds = predict(test_no_states_loader, model, device)
-save_pred(preds, 'pred.csv')         
